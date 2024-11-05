@@ -1,9 +1,11 @@
-Package: scihubr
+Package: bibliofetch
 Title: Download Academic Papers from Sci-Hub
 Version: 0.1.0
 Authors@R: 
-    person(given = "Choxos",
-           role = c("aut", "cre"))
+    person(given = "Ahmad",
+           family = "Sofi-Mahmudi",
+           role = c("aut", "cre"),
+           email = "a.sofimahmudi@gmail.com")
 Description: A tool to download academic papers from Sci-Hub using DOIs or URLs.
     Provides progress tracking and parallel download capabilities.
 License: GNU GPL 3
