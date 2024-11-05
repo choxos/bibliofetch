@@ -4,7 +4,7 @@ Download academic papers from Sci-Hub using DOIs or URLs.
 
 ## Installation
 
-You can install the development version of scihubr from GitHub with:
+You can install the development version of bibliofetch from GitHub with:
 
 ```r
 # install.packages("devtools")
