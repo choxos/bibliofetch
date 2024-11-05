@@ -13,9 +13,9 @@
 #' @examples
 #' \dontrun{
 #' dois <- c("10.1038/nature09492", "10.1126/science.1157784")
-#' check_and_download_scihub(dois)
+#' download_scihub(dois)
 #' }
-check_and_download_scihub <- function(identifiers, output_dir = "downloads", parallel = FALSE) {
+download_scihub <- function(identifiers, output_dir = "downloads", parallel = FALSE) {
   # Load required packages
   check_packages()
   

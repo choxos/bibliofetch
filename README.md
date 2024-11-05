@@ -17,14 +17,14 @@ devtools::install_github("choxos/bibliofetch")
 library(bibliofetch)
 
 # Download a single paper
-check_and_download_scihub("10.1038/nature09492")
+download_scihub("10.1038/nature09492")
 
 # Download multiple papers
 dois <- c(
   "10.1038/nature09492",
   "10.1126/science.1157784"
 )
-check_and_download_scihub(dois)
+download_scihub(dois)
 ```
 
 ## Features
