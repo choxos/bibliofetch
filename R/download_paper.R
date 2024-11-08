@@ -248,42 +248,88 @@ download_single_paper_rvest <- function(identifier, output_dir, scihub_url = NUL
   file.exists(filepath) && file.size(filepath) >= min_size
 }
 
-#' Initialize Selenium WebDriver
+#' Initialize Selenium WebDriver with retry mechanism
 #' @param browser Character: browser to use ("firefox" or "chrome")
+#' @param max_attempts Number of attempts to initialize Selenium (default: 3)
 #' @return Selenium WebDriver remote driver object
 #' @keywords internal
-initialize_selenium <- function(browser = c("firefox", "chrome")) {
+initialize_selenium <- function(browser = c("firefox", "chrome"), max_attempts = 3) {
   browser <- match.arg(browser)
   
-  tryCatch({
-    message("Initializing Selenium WebDriver...")
-    
-    if (browser == "firefox") {
-      driver <- wdman::selenium(browser = "firefox")
-      remote_driver <- RSelenium::remoteDriver(
-        browserName = "firefox",
-        port = 4444L
-      )
-    } else {
-      driver <- wdman::selenium(browser = "chrome")
-      remote_driver <- RSelenium::remoteDriver(
-        browserName = "chrome",
-        port = 4444L,
-        extraCapabilities = list(
-          chromeOptions = list(
-            args = c('--headless', '--disable-gpu', '--no-sandbox',
-                    '--disable-dev-shm-usage')
+  # Find an available port
+  get_available_port <- function() {
+    conn <- socketConnection("localhost", port = 0, server = TRUE)
+    port <- socketConnection(port = 0)$number
+    close(conn)
+    return(port)
+  }
+  
+  for(attempt in 1:max_attempts) {
+    tryCatch({
+      message(sprintf("Initializing Selenium WebDriver (Attempt %d/%d)...", attempt, max_attempts))
+      
+      # Get a random available port
+      port <- get_available_port()
+      
+      # Start Selenium server with specific port
+      if (browser == "firefox") {
+        driver <- wdman::selenium(
+          browser = "firefox",
+          port = port,
+          verbose = FALSE,
+          check = FALSE  # Skip version checking
+        )
+        remote_driver <- RSelenium::remoteDriver(
+          browserName = "firefox",
+          port = port,
+          host = "localhost"
+        )
+      } else {
+        driver <- wdman::selenium(
+          browser = "chrome",
+          port = port,
+          verbose = FALSE,
+          check = FALSE  # Skip version checking
+        )
+        remote_driver <- RSelenium::remoteDriver(
+          browserName = "chrome",
+          port = port,
+          host = "localhost",
+          extraCapabilities = list(
+            chromeOptions = list(
+              args = c('--headless', '--disable-gpu', '--no-sandbox',
+                      '--disable-dev-shm-usage')
+            )
           )
         )
-      )
-    }
-    
-    remote_driver$open(silent = TRUE)
-    return(list(driver = driver, remote_driver = remote_driver))
-    
-  }, error = function(e) {
-    stop("Failed to initialize Selenium: ", e$message)
-  })
+      }
+      
+      # Wait for server to start
+      Sys.sleep(5)
+      
+      # Try to connect
+      suppressMessages({
+        remote_driver$open(silent = TRUE)
+      })
+      
+      message("Selenium WebDriver initialized successfully!")
+      return(list(driver = driver, remote_driver = remote_driver))
+      
+    }, error = function(e) {
+      # Clean up on error
+      if(exists("driver")) {
+        try(driver$stop(), silent = TRUE)
+      }
+      
+      if(attempt == max_attempts) {
+        stop(sprintf("Failed to initialize Selenium after %d attempts: %s", 
+                    max_attempts, e$message))
+      } else {
+        message(sprintf("Attempt %d failed. Retrying...", attempt))
+        Sys.sleep(2)  # Wait before retrying
+      }
+    })
+  }
 }
 
 #' Download Academic Papers from Sci-Hub
@@ -296,6 +342,7 @@ initialize_selenium <- function(browser = c("firefox", "chrome")) {
 #' @param random_wait Logical; add random variation to waiting time (default: TRUE)
 #' @param skip_existing Logical; skip downloading if PDF already exists (default: TRUE)
 #' @param browser Character; browser to use for selenium method: "firefox" or "chrome" (default: "firefox")
+#' @param selenium_attempts Number of attempts to initialize Selenium (default: 3)
 #'
 #' @return Invisible list of download results
 #' @export
@@ -307,7 +354,8 @@ download_scihub <- function(identifiers,
                           wait_time = 10,
                           random_wait = TRUE,
                           skip_existing = TRUE,
-                          browser = "firefox") {
+                          browser = "firefox",
+                          selenium_attempts = 3) {
   
   # Match method argument
   method <- match.arg(method)
@@ -317,29 +365,12 @@ download_scihub <- function(identifiers,
     browser <- match.arg(browser, choices = c("firefox", "chrome"))
   }
   
-  # Check packages without explicit method argument
-  .check_packages(method)
-  
-  # Validate parameters
-  if (!is.numeric(wait_time) || wait_time < 0) {
-    stop("wait_time must be a non-negative number")
-  }
-  
-  if (!is.null(scihub_url) && !grepl("^https?://", scihub_url)) {
-    stop("Invalid Sci-Hub URL. Must start with 'http://' or 'https://'")
-  }
-  
-  # Create output directory
-  if (!dir.exists(output_dir)) {
-    dir.create(output_dir, recursive = TRUE)
-  }
-  
   # Initialize Selenium if needed
   if (method == "selenium") {
-    selenium <- initialize_selenium(browser)
+    selenium <- initialize_selenium(browser, max_attempts = selenium_attempts)
     on.exit({
-      try(selenium$remote_driver$close())
-      try(selenium$driver$stop())
+      try(selenium$remote_driver$close(), silent = TRUE)
+      try(selenium$driver$stop(), silent = TRUE)
     })
   }
   
