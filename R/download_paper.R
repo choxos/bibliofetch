@@ -16,10 +16,13 @@
 
 # Utility Functions ------------------------------------------------------------
 
+#' @importFrom utils install.packages installed.packages
+NULL
+
 #' Check and install required packages
 #' @param method Character string indicating the download method ("rvest" or "selenium")
 #' @keywords internal
-check_packages <- function(method = c("rvest", "selenium")) {
+.check_packages <- function(method = c("rvest", "selenium")) {
   # Match method argument
   method <- match.arg(method)
   
@@ -41,7 +44,9 @@ check_packages <- function(method = c("rvest", "selenium")) {
   # Load all required packages
   for (pkg in required_packages) {
     suppressPackageStartupMessages({
-      library(pkg, character.only = TRUE)
+      if (!requireNamespace(pkg, quietly = TRUE)) {
+        stop(paste("Package", pkg, "is required but not available."))
+      }
     })
   }
   
@@ -235,13 +240,9 @@ download_single_paper_rvest <- function(identifier, output_dir, scihub_url = NUL
 
 #' Download Academic Papers from Sci-Hub
 #'
-#' This function downloads academic papers from Sci-Hub using either Selenium
-#' WebDriver or direct HTTP requests via rvest.
-#'
 #' @param identifiers Character vector of DOIs or URLs
 #' @param output_dir Directory to save downloaded PDFs (default: "downloads")
 #' @param method Download method to use: "rvest" or "selenium" (default: "rvest")
-#' @param browser Browser to use for selenium method: "firefox" or "chrome" (default: "firefox")
 #' @param scihub_url Character; custom Sci-Hub URL (default: NULL, will use internal mirror list)
 #' @param wait_time Numeric; waiting time in seconds between downloads (default: 10)
 #' @param random_wait Logical; add random variation to waiting time (default: TRUE)
@@ -249,29 +250,18 @@ download_single_paper_rvest <- function(identifier, output_dir, scihub_url = NUL
 #' @return Invisible list of download results
 #' @export
 #'
-#' @examples
-#' \dontrun{
-#' dois <- c("10.1038/nature09492", "10.1126/science.1157784")
-#' 
-#' # Using rvest method (default)
-#' download_scihub(dois)
-#' 
-#' # Using selenium method
-#' download_scihub(dois, method = "selenium", browser = "firefox")
-#' }
 download_scihub <- function(identifiers, 
                           output_dir = "downloads", 
-                          method = "rvest",
-                          browser = "firefox",
+                          method = c("rvest", "selenium"),
                           scihub_url = NULL,
                           wait_time = 10,
                           random_wait = TRUE) {
   
-  # Validate method
-  method <- match.arg(method, c("rvest", "selenium"))
+  # Match method argument
+  method <- match.arg(method)
   
-  # Load required packages
-  check_packages(method)
+  # Check packages without explicit method argument
+  .check_packages(method)
   
   # Validate parameters
   if (!is.numeric(wait_time) || wait_time < 0) {
