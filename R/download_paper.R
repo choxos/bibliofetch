@@ -236,6 +236,9 @@ download_single_paper_rvest <- function(identifier, output_dir, scihub_url = NUL
   })
 }
 
+
+# Main Function -------------------------------------------------------------
+
 #' Check if PDF exists and is valid
 #' @param filepath Path to PDF file
 #' @param min_size Minimum file size in bytes (default: 1000)
@@ -245,7 +248,43 @@ download_single_paper_rvest <- function(identifier, output_dir, scihub_url = NUL
   file.exists(filepath) && file.size(filepath) >= min_size
 }
 
-# Main Function -------------------------------------------------------------
+#' Initialize Selenium WebDriver
+#' @param browser Character: browser to use ("firefox" or "chrome")
+#' @return Selenium WebDriver remote driver object
+#' @keywords internal
+initialize_selenium <- function(browser = c("firefox", "chrome")) {
+  browser <- match.arg(browser)
+  
+  tryCatch({
+    message("Initializing Selenium WebDriver...")
+    
+    if (browser == "firefox") {
+      driver <- wdman::selenium(browser = "firefox")
+      remote_driver <- RSelenium::remoteDriver(
+        browserName = "firefox",
+        port = 4444L
+      )
+    } else {
+      driver <- wdman::selenium(browser = "chrome")
+      remote_driver <- RSelenium::remoteDriver(
+        browserName = "chrome",
+        port = 4444L,
+        extraCapabilities = list(
+          chromeOptions = list(
+            args = c('--headless', '--disable-gpu', '--no-sandbox',
+                    '--disable-dev-shm-usage')
+          )
+        )
+      )
+    }
+    
+    remote_driver$open(silent = TRUE)
+    return(list(driver = driver, remote_driver = remote_driver))
+    
+  }, error = function(e) {
+    stop("Failed to initialize Selenium: ", e$message)
+  })
+}
 
 #' Download Academic Papers from Sci-Hub
 #'
@@ -256,6 +295,7 @@ download_single_paper_rvest <- function(identifier, output_dir, scihub_url = NUL
 #' @param wait_time Numeric; waiting time in seconds between downloads (default: 10)
 #' @param random_wait Logical; add random variation to waiting time (default: TRUE)
 #' @param skip_existing Logical; skip downloading if PDF already exists (default: TRUE)
+#' @param browser Character; browser to use for selenium method: "firefox" or "chrome" (default: "firefox")
 #'
 #' @return Invisible list of download results
 #' @export
@@ -266,10 +306,16 @@ download_scihub <- function(identifiers,
                           scihub_url = NULL,
                           wait_time = 10,
                           random_wait = TRUE,
-                          skip_existing = TRUE) {
+                          skip_existing = TRUE,
+                          browser = "firefox") {
   
   # Match method argument
   method <- match.arg(method)
+  
+  # Validate browser parameter if using selenium
+  if (method == "selenium") {
+    browser <- match.arg(browser, choices = c("firefox", "chrome"))
+  }
   
   # Check packages without explicit method argument
   .check_packages(method)
@@ -288,6 +334,15 @@ download_scihub <- function(identifiers,
     dir.create(output_dir, recursive = TRUE)
   }
   
+  # Initialize Selenium if needed
+  if (method == "selenium") {
+    selenium <- initialize_selenium(browser)
+    on.exit({
+      try(selenium$remote_driver$close())
+      try(selenium$driver$stop())
+    })
+  }
+  
   # Process identifiers
   identifiers <- unique(as.character(identifiers))
   total_papers <- length(identifiers)
@@ -297,7 +352,7 @@ download_scihub <- function(identifiers,
   failed <- 0
   skipped <- 0
   
-  # Create progress bar with skipped count
+  # Create progress bar
   pb <- progress::progress_bar$new(
     format = paste0(
       "Downloading [:bar] :percent | ",
