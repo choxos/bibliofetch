@@ -115,6 +115,79 @@ initialize_selenium <- function(browser = "firefox") {
   })
 }
 
+#' Download a single paper using rvest/httr
+#' @keywords internal
+download_single_paper_rvest <- function(identifier, output_dir, scihub_url = NULL) {
+  tryCatch({
+    # Construct paper URL
+    paper_url <- if (!is.null(scihub_url)) {
+      paste0(scihub_url, "/", identifier)
+    } else {
+      mirrors <- get_scihub_mirrors()
+      for (mirror in mirrors) {
+        url <- paste0(mirror, "/", identifier)
+        resp <- httr::GET(url, httr::timeout(10))
+        if (httr::status_code(resp) == 200) {
+          return(url)
+        }
+      }
+      stop("No working Sci-Hub mirror found")
+    }
+    
+    response <- httr::GET(paper_url, httr::timeout(30))
+    if (httr::status_code(response) != 200) {
+      stop("Failed to access Sci-Hub page")
+    }
+    
+    html_content <- rvest::read_html(response)
+    
+    pdf_url <- html_content %>%
+      rvest::html_nodes("iframe#pdf, embed#pdf") %>%
+      rvest::html_attr("src") %>%
+      .[1]
+    
+    if (is.null(pdf_url) || length(pdf_url) == 0) {
+      stop("PDF URL not found")
+    }
+    
+    if (!grepl("^https?://", pdf_url)) {
+      pdf_url <- paste0("https:", pdf_url)
+    }
+    
+    filename <- paste0(gsub("[^a-zA-Z0-9]", "_", identifier), ".pdf")
+    output_path <- file.path(output_dir, filename)
+    
+    # Create a temporary file for downloading
+    temp_file <- tempfile(fileext = ".pdf")
+    
+    # Download to temporary file first
+    pdf_response <- httr::GET(
+      pdf_url,
+      httr::timeout(60),
+      httr::write_disk(temp_file, overwrite = TRUE)
+    )
+    
+    # Check if the downloaded file is valid (size > 1000 bytes)
+    if (!file.exists(temp_file) || file.size(temp_file) < 1000) {
+      stop("Downloaded file appears to be invalid or empty")
+    }
+    
+    # If valid, move to final location
+    file.copy(temp_file, output_path, overwrite = TRUE)
+    file.remove(temp_file)
+    
+    return(TRUE)
+    
+  }, error = function(e) {
+    # Clean up temporary file if it exists
+    if(exists("temp_file") && file.exists(temp_file)) {
+      file.remove(temp_file)
+    }
+    warning(sprintf("Failed to download %s: %s", identifier, e$message))
+    return(FALSE)
+  })
+}
+
 #' Download a single paper using Selenium
 #' @keywords internal
 download_single_paper_selenium <- function(remote_driver, identifier, output_dir, scihub_url = NULL) {
@@ -158,79 +231,34 @@ download_single_paper_selenium <- function(remote_driver, identifier, output_dir
       pdf_url <- paste0("https:", pdf_url)
     }
     
-    filename <- paste0(gsub("[^a-zA-Z0-9]", "_", identifier), ".pdf")
-    output_path <- file.path(output_dir, filename)
+    # Create a temporary file for downloading
+    temp_file <- tempfile(fileext = ".pdf")
     
-    remote_driver$navigate(pdf_url)
-    Sys.sleep(5)
-    
-    if (!file.exists(output_path) || file.size(output_path) < 1000) {
-      stop("Downloaded file appears to be invalid")
-    }
-    
-    return(TRUE)
-  }, error = function(e) {
-    warning(sprintf("Failed to download %s: %s", identifier, e$message))
-    return(FALSE)
-  })
-}
-
-# Rvest-specific Functions --------------------------------------------------
-
-#' Download a single paper using rvest/httr
-#' @keywords internal
-download_single_paper_rvest <- function(identifier, output_dir, scihub_url = NULL) {
-  tryCatch({
-    # Construct paper URL
-    paper_url <- if (!is.null(scihub_url)) {
-      paste0(scihub_url, "/", identifier)
-    } else {
-      mirrors <- get_scihub_mirrors()
-      for (mirror in mirrors) {
-        url <- paste0(mirror, "/", identifier)
-        resp <- httr::GET(url, httr::timeout(10))
-        if (httr::status_code(resp) == 200) {
-          return(url)
-        }
-      }
-      stop("No working Sci-Hub mirror found")
-    }
-    
-    response <- httr::GET(paper_url, httr::timeout(30))
-    if (httr::status_code(response) != 200) {
-      stop("Failed to access Sci-Hub page")
-    }
-    
-    html_content <- rvest::read_html(response)
-    
-    pdf_url <- html_content %>%
-      rvest::html_nodes("iframe#pdf, embed#pdf") %>%
-      rvest::html_attr("src") %>%
-      .[1]
-    
-    if (is.null(pdf_url)) {
-      stop("PDF URL not found")
-    }
-    
-    if (!grepl("^https?://", pdf_url)) {
-      pdf_url <- paste0("https:", pdf_url)
-    }
-    
-    filename <- paste0(gsub("[^a-zA-Z0-9]", "_", identifier), ".pdf")
-    output_path <- file.path(output_dir, filename)
-    
+    # Download using httr to temp file
     pdf_response <- httr::GET(
       pdf_url,
       httr::timeout(60),
-      httr::write_disk(output_path, overwrite = TRUE)
+      httr::write_disk(temp_file, overwrite = TRUE)
     )
     
-    if (!file.exists(output_path) || file.size(output_path) < 1000) {
-      stop("Downloaded file appears to be invalid")
+    # Check if the downloaded file is valid
+    if (!file.exists(temp_file) || file.size(temp_file) < 1000) {
+      stop("Downloaded file appears to be invalid or empty")
     }
     
+    # If valid, move to final location
+    filename <- paste0(gsub("[^a-zA-Z0-9]", "_", identifier), ".pdf")
+    output_path <- file.path(output_dir, filename)
+    file.copy(temp_file, output_path, overwrite = TRUE)
+    file.remove(temp_file)
+    
     return(TRUE)
+    
   }, error = function(e) {
+    # Clean up temporary file if it exists
+    if(exists("temp_file") && file.exists(temp_file)) {
+      file.remove(temp_file)
+    }
     warning(sprintf("Failed to download %s: %s", identifier, e$message))
     return(FALSE)
   })
