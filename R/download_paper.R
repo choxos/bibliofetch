@@ -17,14 +17,18 @@
 # Utility Functions ------------------------------------------------------------
 
 #' Check and install required packages
+#' @param method Character string indicating the download method ("rvest" or "selenium")
 #' @keywords internal
-check_packages <- function(method = "rvest") {
+check_packages <- function(method = c("rvest", "selenium")) {
+  # Match method argument
+  method <- match.arg(method)
+  
+  # Define required packages based on method
   base_packages <- c("progress", "crayon", "tools", "stringr")
-  method_packages <- if (method == "selenium") {
-    c("RSelenium", "wdman")
-  } else {
-    c("httr", "rvest")
-  }
+  method_packages <- switch(method,
+    "selenium" = c("RSelenium", "wdman"),
+    "rvest" = c("httr", "rvest")
+  )
   
   required_packages <- c(base_packages, method_packages)
   missing_packages <- required_packages[!required_packages %in% installed.packages()[,"Package"]]
@@ -36,8 +40,12 @@ check_packages <- function(method = "rvest") {
   
   # Load all required packages
   for (pkg in required_packages) {
-    library(pkg, character.only = TRUE)
+    suppressPackageStartupMessages({
+      library(pkg, character.only = TRUE)
+    })
   }
+  
+  invisible(required_packages)
 }
 
 #' Get default Sci-Hub mirrors
